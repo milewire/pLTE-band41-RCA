@@ -58,8 +58,11 @@ Railway requires **two separate services** - one for backend, one for frontend. 
 3. **Railway will auto-detect:**
    - Python project (from `backend/requirements.txt` or `requirements.txt` in repo root)
    - Python version 3.11 (from `backend/runtime.txt`)
-   - Build configuration from `backend/nixpacks.toml` or `backend/build.sh`
-   - Start command from `backend/railway.json` (will run from `backend/` directory)
+   - Build system: Railpack (new) or Nixpacks (legacy)
+   - **IMPORTANT**: You need to manually set the build command in Railway dashboard:
+     - Go to **Settings** → **Build** section
+     - Set **Build Command** to: `pip install -r requirements.txt && chmod +x build.sh && ./build.sh`
+   - Start command: Railway will use `backend/Procfile` or `backend/railway.json`
 
 4. **Set Environment Variables** (in Railway dashboard → Variables tab):
    ```
