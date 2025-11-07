@@ -82,9 +82,11 @@ backend/uploads/*
 backend/baselines/*
 !backend/baselines/.gitkeep
 
-# Test files (optional - uncomment if you want to exclude test scripts)
-# test_*.py
-# *test*.py
+# Railway deployment files (keep these)
+!railway.json
+!Procfile
+!runtime.txt
+!backend/railway.json
 
 # Testing
 .coverage

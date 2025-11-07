@@ -7,6 +7,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Send, Loader2, Bot } from 'lucide-react'
 import axios from 'axios'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 export default function AskAIPage() {
   const router = useRouter()
   const [question, setQuestion] = useState('')
@@ -65,7 +67,7 @@ export default function AskAIPage() {
       const kpiData = storedKpiData ? JSON.parse(storedKpiData) : []
 
       // Call the AI endpoint
-      const response = await axios.post('http://localhost:8000/ask-ai', {
+      const response = await axios.post(`${API_URL}/ask-ai`, {
         question: question,
         kpi_data: kpiData,
         rca_result: rcaResult,

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { Upload as UploadIcon, File, Loader2 } from 'lucide-react'
 import axios from 'axios'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -42,7 +44,7 @@ export default function UploadPage() {
       formData.append('file', file)
 
       // Upload file
-      await axios.post('http://localhost:8000/upload', formData, {
+      await axios.post(`${API_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -69,7 +71,7 @@ export default function UploadPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await axios.post('http://localhost:8000/analyze', formData, {
+      const response = await axios.post(`${API_URL}/analyze`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

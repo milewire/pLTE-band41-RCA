@@ -415,7 +415,24 @@ If you see LaTeX notation (e.g., `\[ \frac{128}{140} \]`), the cleanup function 
 - Verify XML structure matches Ericsson ENM PM format
 - Check `backend/uploads/` directory for uploaded files
 
+## Deployment
+
+### Railway Deployment
+
+This application can be deployed to Railway for both frontend and backend services.
+
+**Quick Start:**
+1. Create a Railway project
+2. Add backend service (root: `backend/`)
+3. Add frontend service (root: `frontend/`)
+4. Set environment variables (see `RAILWAY_DEPLOYMENT.md`)
+
+See [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for detailed deployment instructions.
+
+**Environment Variables:**
+- Backend: `ALLOW_CLOUD`, `OPENAI_API_KEY`, `CORS_ORIGINS`, `PORT`
+- Frontend: `NEXT_PUBLIC_API_URL`, `NODE_ENV`
+
 ## License
 
 This project is available for portfolio and demonstration purposes. See LICENSE file for details.
-# pLTE-band41-RCA

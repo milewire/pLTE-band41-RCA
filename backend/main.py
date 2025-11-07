@@ -34,9 +34,10 @@ from nlq import answer_question
 app = FastAPI(title="LTE Band 41 RCA API", version="1.0.0")
 
 # CORS configuration
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
