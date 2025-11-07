@@ -25,10 +25,29 @@ if not ai_path.exists():
 
 if engine_path.exists():
     sys.path.insert(0, str(engine_path))
+    print(f"✓ Added engine path: {engine_path}")
+else:
+    print(f"✗ Engine path not found: {engine_path}")
+
 if ai_path.exists():
     sys.path.insert(0, str(ai_path))
+    print(f"✓ Added AI path: {ai_path}")
+else:
+    print(f"✗ AI path not found: {ai_path}")
 
-from parser import parse_ericsson_pm_xml
+# Debug: Print current sys.path
+print(f"Python sys.path: {sys.path}")
+
+try:
+    from parser import parse_ericsson_pm_xml
+    print("✓ Successfully imported parser")
+except ImportError as e:
+    print(f"✗ Failed to import parser: {e}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Backend directory: {backend_dir}")
+    print(f"Engine path exists: {engine_path.exists() if engine_path else False}")
+    print(f"AI path exists: {ai_path.exists() if ai_path else False}")
+    raise
 from rca import analyze_rca
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
