@@ -111,8 +111,33 @@ class AskAIResponse(BaseModel):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "LTE Band 41 RCA API"}
+    """Health check endpoint with upload directory status"""
+    health_status = {
+        "status": "healthy",
+        "service": "LTE Band 41 RCA API",
+        "upload_dir": {
+            "path": str(UPLOAD_DIR),
+            "exists": UPLOAD_DIR.exists(),
+            "writable": False
+        }
+    }
+    
+    # Test write permissions
+    try:
+        if UPLOAD_DIR.exists():
+            test_file = UPLOAD_DIR / ".health_check"
+            test_file.write_text("test")
+            test_file.unlink()
+            health_status["upload_dir"]["writable"] = True
+        else:
+            # Try to create it
+            UPLOAD_DIR.mkdir(exist_ok=True)
+            health_status["upload_dir"]["writable"] = True
+    except Exception as e:
+        health_status["upload_dir"]["error"] = str(e)
+        health_status["status"] = "degraded"
+    
+    return health_status
 
 
 def cleanup_old_files():
@@ -139,22 +164,91 @@ def cleanup_old_files():
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Upload and store PM XML file temporarily"""
-    if not file.filename.endswith(('.xml.gz', '.gz', '.zip', '.xml')):
-        raise HTTPException(status_code=400, detail="File must be .xml.gz, .gz, .zip, or .xml format")
+    import traceback
     
-    # Clean up old files before uploading new one
-    cleanup_old_files()
+    try:
+        # Validate filename exists
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+        
+        # Validate file extension
+        if not file.filename.endswith(('.xml.gz', '.gz', '.zip', '.xml')):
+            raise HTTPException(status_code=400, detail="File must be .xml.gz, .gz, .zip, or .xml format")
+        
+        # Ensure upload directory exists and is writable
+        try:
+            UPLOAD_DIR.mkdir(exist_ok=True)
+            # Test write permissions
+            test_file = UPLOAD_DIR / ".test_write"
+            test_file.write_text("test")
+            test_file.unlink()
+        except Exception as e:
+            error_msg = f"Cannot write to uploads directory: {str(e)}"
+            print(f"Upload directory error: {error_msg}")
+            print(f"Upload directory path: {UPLOAD_DIR}")
+            print(f"Upload directory exists: {UPLOAD_DIR.exists()}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        # Clean up old files before uploading new one
+        try:
+            cleanup_old_files()
+        except Exception as e:
+            print(f"Warning: Cleanup failed: {e}")
+            # Continue even if cleanup fails
+        
+        # Save file temporarily
+        file_path = UPLOAD_DIR / file.filename
+        
+        # Check file size (limit to 100MB)
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        file_size = 0
+        
+        try:
+            with open(file_path, "wb") as buffer:
+                while True:
+                    chunk = await file.read(8192)  # Read in 8KB chunks
+                    if not chunk:
+                        break
+                    file_size += len(chunk)
+                    if file_size > MAX_FILE_SIZE:
+                        # Clean up partial file
+                        if file_path.exists():
+                            file_path.unlink()
+                        raise HTTPException(
+                            status_code=413, 
+                            detail=f"File too large. Maximum size is {MAX_FILE_SIZE / (1024*1024):.0f}MB"
+                        )
+                    buffer.write(chunk)
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Clean up partial file on error
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                except:
+                    pass
+            error_msg = f"Failed to save file: {str(e)}"
+            print(f"File save error: {error_msg}")
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        print(f"Successfully uploaded file: {file.filename} ({file_size / 1024:.2f} KB)")
+        
+        return {
+            "filename": file.filename,
+            "path": str(file_path),
+            "size": file_size,
+            "message": f"File uploaded successfully. Files are retained for {FILE_RETENTION_HOURS} hours."
+        }
     
-    # Save file temporarily
-    file_path = UPLOAD_DIR / file.filename
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    return {
-        "filename": file.filename,
-        "path": str(file_path),
-        "message": f"File uploaded successfully. Files are retained for {FILE_RETENTION_HOURS} hours."
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Upload failed: {str(e)}"
+        print(f"Upload error: {error_msg}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @app.post("/analyze", response_model=RCAResponse)

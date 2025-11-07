@@ -17,8 +17,11 @@ A production-grade application for analyzing LTE Band 41 network anomalies. Feat
 - Parse and analyze PM XML data (supports multiple Ericsson XML formats)
 - Detect anomalies (Transport/TIMING, Microwave ACM, TDD misalignment, etc.)
 - Validate new-site post-integration performance
-- Interactive dashboards with time-series charts
+- Interactive dashboards with time-series charts and KPI statistics
 - Automatic file cleanup (files older than 24 hours are removed)
+- Comprehensive error handling with detailed error messages
+- File size validation (100MB maximum)
+- Upload directory permission checks
 
 ### AI-Enhanced Features
 
@@ -146,25 +149,74 @@ Frontend runs on `http://localhost:3000`
 ### Basic Workflow
 
 1. Navigate to `/upload` page
-2. Upload an Ericsson PM XML file (.xml.gz)
+2. Upload an Ericsson PM XML file (.xml.gz, .gz, .zip, or .xml)
 3. View analysis results on `/dashboard` and `/rca` pages
 4. Ask questions on `/ask-ai` page
+5. Reference KPI parameters and thresholds on `/help` page
 
 ### Pages
 
 - **`/upload`** - Upload PM XML files for analysis (.xml.gz, .gz, .zip, .xml)
+  - Supports file sizes up to 100MB
+  - Automatic file validation and error reporting
+  - Upload progress tracking
+  
 - **`/dashboard`** - View KPI metrics, time-series charts, and site comparisons
+  - KPI statistics (Mean, Min, Max, Count) for each metric
+  - Time-series visualization of KPI trends
+  - Site comparison bar charts
+  - Displays "No Data Available" message if no analysis has been performed
+  
 - **`/rca`** - Detailed root cause analysis with AI enhancements
+  - Root cause classification and severity
+  - Anomaly detection results
+  - Evidence and recommendations
+  - AI-powered summary (when GPT-4o is enabled)
+  
 - **`/ask-ai`** - Natural language query interface powered by GPT-4o (when configured)
+  - Ask questions about KPI data in plain English
+  - Professional report-quality responses
+  - Confidence scoring for all answers
+  
 - **`/help`** - KPI parameters reference, ideal values, thresholds, and root cause classifications
+  - Complete list of monitored KPIs
+  - Ideal values and thresholds
+  - Root cause classification explanations
+  - Severity level definitions
+
+### Understanding Dashboard Statistics
+
+The dashboard displays statistical summaries for each KPI:
+
+- **Mean**: Average value across all measurements
+- **Min**: Minimum value observed
+- **Max**: Maximum value observed
+- **Count**: Number of measurement samples
+
+**Note**: When `Count: 1`, all statistics (Mean, Min, Max) will be identical since there's only one data point. With multiple time periods, you'll see variation and additional statistics like median and standard deviation.
+
+**KPI Types**:
+- **Event Counts**: RRC_Setup_Attempts, RRC_Setup_Success (discrete events)
+- **Measurements**: PRB_Utilization_Avg, SINR_PUSCH, BLER_DL (continuous values)
 
 ## API Endpoints
 
 ### Core Endpoints
 
-- `GET /health` - Health check
+- `GET /health` - Health check endpoint
+  - Returns service status and upload directory permissions
+  - Useful for verifying production deployment health
+  
 - `POST /upload` - Upload PM XML file
+  - Accepts: `.xml.gz`, `.gz`, `.zip`, `.xml` files
+  - Maximum file size: 100MB
+  - Validates file format and permissions
+  - Returns file information and storage path
+  
 - `POST /analyze` - Parse and analyze PM data with AI enhancements
+  - Accepts uploaded file
+  - Returns complete RCA analysis with AI features
+  - Includes KPI data, anomalies, recommendations, and AI summary
 
 ### AI Endpoints
 
@@ -321,16 +373,27 @@ The system detects and classifies the following root causes:
 
 ## KPI Thresholds
 
-- RRC Setup Success Rate: ≥ 95%
-- ERAB Setup Success Rate: ≥ 98%
-- PRB Utilization Avg: < 70%
-- PRB Utilization P95: < 85%
-- SINR Avg: > 5 dB
-- SINR P10: > 0 dB
-- BLER P95: < 10%
-- Paging Success Rate: ≥ 95%
-- S1 Setup Failure Rate: < 1%
-- Cell Availability: ≥ 99%
+The application monitors the following KPIs with defined thresholds:
+
+- **RRC Setup Success Rate**: ≥ 95%
+- **ERAB Setup Success Rate**: ≥ 98%
+- **PRB Utilization Avg**: < 70%
+- **PRB Utilization P95**: < 85%
+- **SINR Avg**: > 5 dB
+- **SINR P10**: > 0 dB
+- **BLER P95**: < 10%
+- **Paging Success Rate**: ≥ 95%
+- **S1 Setup Failure Rate**: < 1%
+- **Cell Availability**: ≥ 99%
+
+**Additional Monitored KPIs** (without thresholds):
+- RRC_Setup_Attempts, RRC_Setup_Success, RRC_Connections
+- ERAB_Setup_Attempts, ERAB_Setup_Success, ERAB_Connections
+- SINR_PUSCH, BLER_DL
+- Downlink_Throughput, Uplink_Throughput
+- Handover_Success_Rate
+
+For complete KPI documentation, ideal values, and root cause classifications, see the `/help` page in the application or [KPI_PARAMETERS.md](KPI_PARAMETERS.md).
 
 ## File Format
 
@@ -350,7 +413,15 @@ The XML should contain:
 **File Storage:**
 - Uploaded files are stored temporarily in `backend/uploads/`
 - Files older than 24 hours are automatically cleaned up
-- Files are processed and removed after analysis
+- Files are processed immediately and results returned to client
+- On Railway: Files are stored in ephemeral storage (lost on restart, which is fine for this use case)
+
+**File Processing:**
+- Files are validated for format and size before processing
+- ZIP files are automatically extracted to find XML content
+- GZIP files are automatically decompressed
+- Plain XML files are processed directly
+- Comprehensive error messages for parsing failures
 
 ## Development
 
@@ -390,6 +461,8 @@ All responses are formatted as professional reports with:
 ## Documentation
 
 - [KPI_PARAMETERS.md](KPI_PARAMETERS.md) - Complete KPI parameters reference with thresholds, ideal values, and Ericsson counter mappings
+- [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) - Detailed guide for deploying to Railway platform
+- `/help` page in application - Interactive KPI reference with root cause classifications
 
 ## Troubleshooting
 
@@ -410,10 +483,41 @@ If you see LaTeX notation (e.g., `\[ \frac{128}{140} \]`), the cleanup function 
 
 ### File Upload Issues
 
+**Local Development:**
 - Ensure file format is supported: `.xml.gz`, `.gz`, `.zip`, or `.xml`
 - Check backend console for parsing errors
 - Verify XML structure matches Ericsson ENM PM format
 - Check `backend/uploads/` directory for uploaded files
+
+**Production (Railway):**
+1. **Check Environment Variables:**
+   - Verify `NEXT_PUBLIC_API_URL` is set to your backend Railway URL (not localhost)
+   - Verify `CORS_ORIGINS` includes your frontend Railway URL
+   - Both should be HTTPS URLs (e.g., `https://your-backend.railway.app`)
+
+2. **Check Backend Health:**
+   - Visit `https://your-backend.railway.app/health` in your browser
+   - Verify `upload_dir.writable` is `true`
+   - If `writable` is `false`, check Railway logs for permission errors
+
+3. **Check Railway Logs:**
+   - Go to Railway dashboard → Backend service → Logs
+   - Look for error messages when upload fails
+   - Common errors:
+     - `Cannot write to uploads directory` → File system permission issue
+     - `File too large` → File exceeds 100MB limit
+     - `No filename provided` → Frontend not sending file correctly
+     - `Cannot connect to server` → `NEXT_PUBLIC_API_URL` misconfigured
+
+4. **Network Issues:**
+   - Verify frontend can reach backend (check browser console for CORS errors)
+   - Test backend directly: `curl https://your-backend.railway.app/health`
+   - Check that both services are deployed and running
+
+5. **File Size:**
+   - Maximum file size is 100MB
+   - Large files may timeout (5 minute timeout configured)
+   - Consider compressing files before upload
 
 ## Deployment
 
@@ -430,8 +534,21 @@ This application can be deployed to Railway for both frontend and backend servic
 See [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for detailed deployment instructions.
 
 **Environment Variables:**
-- Backend: `ALLOW_CLOUD`, `OPENAI_API_KEY`, `CORS_ORIGINS`, `PORT`
-- Frontend: `NEXT_PUBLIC_API_URL`, `NODE_ENV`
+
+**Backend Service:**
+- `ALLOW_CLOUD=1` - Enable GPT-4o for Ask AI feature
+- `OPENAI_API_KEY` - Your OpenAI API key (required when `ALLOW_CLOUD=1`)
+- `CORS_ORIGINS` - Comma-separated list of allowed origins (e.g., `https://your-frontend.railway.app`)
+- `PORT` - Automatically set by Railway (use `$PORT` in Procfile)
+
+**Frontend Service:**
+- `NEXT_PUBLIC_API_URL` - Your backend Railway URL (e.g., `https://your-backend.railway.app`)
+- `NODE_ENV=production` - Set to production for optimized builds
+
+**Important Notes:**
+- `NEXT_PUBLIC_API_URL` must include `https://` protocol
+- `CORS_ORIGINS` should not have trailing slashes
+- Frontend must be rebuilt after changing `NEXT_PUBLIC_API_URL` (Next.js embeds it at build time)
 
 ## License
 
