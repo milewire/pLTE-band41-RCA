@@ -48,14 +48,18 @@ Railway requires **two separate services** - one for backend, one for frontend. 
    - Go to **Settings** tab
    - Scroll to **Service** section
    - Find **Root Directory** field
-   - Set it to: `backend` (without quotes)
+   - **Option A (Recommended)**: Leave Root Directory **EMPTY** (use repo root)
+     - This allows the build script to access `engine/` and `ai/` directories
+     - The build script will copy them into `backend/` during build
+   - **Option B**: Set it to: `backend` (without quotes)
+     - Requires Railway to have access to parent directories (may not work)
    - Click **Save**
 
 3. **Railway will auto-detect:**
-   - Python project (from `backend/requirements.txt`)
+   - Python project (from `backend/requirements.txt` or `requirements.txt` in repo root)
    - Python version 3.11 (from `backend/runtime.txt`)
-   - Build configuration from `backend/nixpacks.toml` (copies `engine/` and `ai/` directories)
-   - Start command from `backend/railway.json`
+   - Build configuration from `backend/nixpacks.toml` or `backend/build.sh`
+   - Start command from `backend/railway.json` (will run from `backend/` directory)
 
 4. **Set Environment Variables** (in Railway dashboard → Variables tab):
    ```
