@@ -123,21 +123,21 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 px-4 sm:px-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Upload PM Data</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">Upload PM Data</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           Upload Ericsson ENM PM counter files for analysis
         </p>
       </div>
 
-      <div className="border-2 border-dashed rounded-lg p-12 text-center space-y-4">
+      <div className="border-2 border-dashed rounded-lg p-6 sm:p-12 text-center space-y-4">
         <UploadIcon className="h-12 w-12 mx-auto text-muted-foreground" />
         
         <div>
           <label
             htmlFor="file-upload"
-            className="cursor-pointer inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+            className="cursor-pointer inline-flex items-center px-4 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm sm:text-base min-h-[44px]"
           >
             <File className="h-4 w-4 mr-2" />
             Select File
@@ -177,7 +177,7 @@ export default function UploadPage() {
           <button
             onClick={handleUpload}
             disabled={!file || uploading || analyzing}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full sm:w-auto px-6 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm sm:text-base min-h-[44px]"
           >
             {uploading ? (
               <>
@@ -198,7 +198,7 @@ export default function UploadPage() {
         )}
       </div>
 
-      <div className="bg-muted/50 p-4 rounded-lg text-sm space-y-2">
+      <div className="bg-muted/50 p-4 rounded-lg text-xs sm:text-sm space-y-2">
         <p className="font-semibold">File Requirements:</p>
         <ul className="list-disc list-inside space-y-1 text-muted-foreground">
           <li>Format: Ericsson ENM PM XML (.xml.gz, .gz, .zip, or .xml)</li>

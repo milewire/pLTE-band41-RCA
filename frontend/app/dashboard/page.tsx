@@ -152,10 +152,10 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 sm:px-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-        <p className="text-muted-foreground">KPI metrics and performance indicators</p>
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">Dashboard</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">KPI metrics and performance indicators</p>
       </div>
 
       {/* Root Cause Summary */}
@@ -216,8 +216,8 @@ export default function DashboardPage() {
             <CardTitle>KPI Time Series</CardTitle>
             <CardDescription>Performance trends over time</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={400}>
+          <CardContent className="px-2 sm:px-6">
+            <ResponsiveContainer width="100%" height={300} className="sm:h-[400px]">
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="timestamp" />
@@ -246,8 +246,8 @@ export default function DashboardPage() {
             <CardTitle>Site Comparison</CardTitle>
             <CardDescription>Average KPI values by site</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+          <CardContent className="px-2 sm:px-6">
+            <ResponsiveContainer width="100%" height={250} className="sm:h-[300px]">
               <BarChart data={siteSummary}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="site" />

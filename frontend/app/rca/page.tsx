@@ -102,10 +102,10 @@ export default function RCAPage() {
   const SeverityIcon = severity.icon
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 sm:px-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Root Cause Analysis</h1>
-        <p className="text-muted-foreground">Detailed analysis results and recommendations</p>
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">Root Cause Analysis</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">Detailed analysis results and recommendations</p>
       </div>
 
       {/* AI RCA Summary - Feature A */}

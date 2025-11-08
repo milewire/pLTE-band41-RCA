@@ -158,10 +158,10 @@ const categories = Array.from(new Set([...KPI_THRESHOLDS, ...ADDITIONAL_KPIS].ma
 
 export default function HelpPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 sm:px-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2">KPI Parameters Help</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">KPI Parameters Help</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           Reference guide for KPI parameters, ideal values, and thresholds
         </p>
       </div>
@@ -192,7 +192,7 @@ export default function HelpPage() {
                   <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
                     KPIs with Defined Thresholds
                   </h3>
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {thresholdKPIs.map((kpi) => (
                       <div key={kpi.name} className="p-4 border rounded-lg space-y-2">
                         <div className="flex items-start justify-between">
@@ -225,7 +225,7 @@ export default function HelpPage() {
                   <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
                     Additional Monitored KPIs
                   </h3>
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {additionalKPIs.map((kpi) => (
                       <div key={kpi.name} className="p-4 border rounded-lg">
                         <h4 className="font-semibold text-sm">{kpi.name}</h4>

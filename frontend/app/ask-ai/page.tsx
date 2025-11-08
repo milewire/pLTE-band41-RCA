@@ -91,10 +91,10 @@ export default function AskAIPage() {
   ]
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6 px-4 sm:px-6">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Ask RCA AI</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">Ask RCA AI</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           Ask natural language questions about your KPI data and RCA analysis
         </p>
       </div>
@@ -125,7 +125,7 @@ export default function AskAIPage() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 placeholder="e.g., What is the root cause of the performance issues?"
-                className="w-full min-h-[120px] p-4 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full min-h-[120px] p-4 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary text-sm sm:text-base"
                 disabled={loading || !hasData}
               />
             </div>
@@ -133,7 +133,7 @@ export default function AskAIPage() {
               <button
                 type="submit"
                 disabled={loading || !hasData || !question.trim()}
-                className="inline-flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm sm:text-base min-h-[44px]"
               >
                 {loading ? (
                   <>
