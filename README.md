@@ -1,4 +1,4 @@
-# LTE Band 41 RCA Application
+# RAN-copilot
 
 A production-grade application for analyzing LTE Band 41 network anomalies. Features AI-powered root cause analysis, anomaly detection, parameter drift monitoring, and natural language querying.
 
@@ -38,7 +38,7 @@ A production-grade application for analyzing LTE Band 41 network anomalies. Feat
 ## Project Structure
 
 ```
-pLTE-Band41-RCA/
+RAN-copilot/
 ├── frontend/                 # Next.js 14 Frontend
 │   ├── app/
 │   │   ├── dashboard/        # Dashboard page with KPI charts
