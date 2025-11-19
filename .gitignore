@@ -103,3 +103,15 @@ htmlcov/
 .cache
 .snapshots/
 
+# Local environment files
+env.local
+*.local
+
+# PowerShell scripts (local development helpers)
+*.ps1
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+

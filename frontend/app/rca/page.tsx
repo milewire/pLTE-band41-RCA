@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import axios from 'axios'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertTriangle, CheckCircle2, XCircle, Info } from 'lucide-react'
@@ -45,10 +46,14 @@ interface RCAResults {
   }
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 export default function RCAPage() {
   const router = useRouter()
   const [rcaResults, setRcaResults] = useState<RCAResults | null>(null)
   const [loading, setLoading] = useState(true)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
 
   useEffect(() => {
     // Check if we're in the browser
@@ -101,11 +106,73 @@ export default function RCAPage() {
   const severity = severityConfig[rcaResults.severity as keyof typeof severityConfig] || severityConfig.low
   const SeverityIcon = severity.icon
 
+  const handleGenerateReport = async () => {
+    if (typeof window === 'undefined') return
+    setReportLoading(true)
+    setReportError(null)
+
+    try {
+      const alarmSummary = sessionStorage.getItem('alarmSummary')
+      const backhaulSummary = sessionStorage.getItem('backhaulSummary')
+      const attachSummary = sessionStorage.getItem('attachSummary')
+
+      const payload = {
+        siteId: rcaResults.kpi_data?.[0]?.site ?? 'Unknown',
+        timestampRange: {
+          start: rcaResults.kpi_data?.[0]?.timestamp ?? null,
+          end: rcaResults.kpi_data?.[rcaResults.kpi_data.length - 1]?.timestamp ?? null,
+        },
+        rcaResult: rcaResults,
+        kpiSummary: rcaResults.evidence,
+        alarmSummary: alarmSummary ? JSON.parse(alarmSummary) : null,
+        backhaulSummary: backhaulSummary ? JSON.parse(backhaulSummary) : null,
+        attachSummary: attachSummary ? JSON.parse(attachSummary) : null,
+      }
+
+      const response = await axios.post(`${API_URL}/incident-report`, payload, {
+        responseType: 'blob',
+      })
+
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'ran_copilot_incident_report.pdf'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setReportError(err.response?.data?.detail || 'Failed to generate incident report')
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6 px-4 sm:px-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold mb-2">Root Cause Analysis</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">Detailed analysis results and recommendations</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2">Root Cause Analysis</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">
+              Detailed analysis results and recommendations
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerateReport}
+            disabled={reportLoading}
+            className="inline-flex items-center justify-center px-4 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
+          >
+            {reportLoading ? 'Generating Report…' : 'Generate Incident Report (PDF)'}
+          </button>
+        </div>
+        {reportError && (
+          <p className="mt-2 text-xs text-destructive">
+            {reportError}
+          </p>
+        )}
       </div>
 
       {/* AI RCA Summary - Feature A */}

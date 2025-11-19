@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import sys
 import os
 from pathlib import Path
@@ -9,46 +9,23 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(Path(__file__).parent / ".env")
 
-# Add engine and ai to path
-# Handle both local development and Railway deployment
+# Ensure project root is on sys.path so we can import:
+# - top-level `engine` and `ai` packages
+# - the `backend` package itself when running from the repo root
 backend_dir = Path(__file__).parent
-
-# Try local paths first (for Railway - engine/ai copied to backend/)
-engine_path = backend_dir / "engine"
-ai_path = backend_dir / "ai"
-
-# If not found, try parent directory (for local development)
-if not engine_path.exists():
-    engine_path = backend_dir.parent / "engine"
-if not ai_path.exists():
-    ai_path = backend_dir.parent / "ai"
-
-if engine_path.exists():
-    sys.path.insert(0, str(engine_path))
-    print(f"✓ Added engine path: {engine_path}")
-else:
-    print(f"✗ Engine path not found: {engine_path}")
-
-if ai_path.exists():
-    sys.path.insert(0, str(ai_path))
-    print(f"✓ Added AI path: {ai_path}")
-else:
-    print(f"✗ AI path not found: {ai_path}")
-
-# Debug: Print current sys.path
-print(f"Python sys.path: {sys.path}")
+project_root = backend_dir.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 try:
-    from parser import parse_ericsson_pm_xml
-    print("✓ Successfully imported parser")
+    from engine.parser import parse_ericsson_pm_xml
+    print("[INIT] Successfully imported engine.parser")
 except ImportError as e:
-    print(f"✗ Failed to import parser: {e}")
-    print(f"Current working directory: {os.getcwd()}")
-    print(f"Backend directory: {backend_dir}")
-    print(f"Engine path exists: {engine_path.exists() if engine_path else False}")
-    print(f"AI path exists: {ai_path.exists() if ai_path else False}")
+    print(f"[INIT] Failed to import engine.parser: {e}")
+    print(f"[INIT] Current working directory: {os.getcwd()}")
+    print(f"[INIT] Backend directory: {backend_dir}")
     raise
-from rca import analyze_rca
+from engine.rca import analyze_rca
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import gzip
@@ -59,11 +36,20 @@ import time
 from datetime import datetime, timedelta
 import pandas as pd
 
-# AI module imports
-from gpt_summary import generate_ai_summary
-from anomaly_detector import detect_anomalies, prepare_hourly_data
-from drift_detector import detect_drift
-from nlq import answer_question
+# AI module imports (from top-level ai package)
+from ai.gpt_summary import generate_ai_summary
+from ai.anomaly_detector import detect_anomalies, prepare_hourly_data
+from ai.drift_detector import detect_drift
+from ai.nlq import answer_question
+from backend.analyzers.alarm_analyzer import parse_alarm_file, summarize_alarms, alarms_to_dicts
+from backend.analyzers.backhaul_analyzer import parse_backhaul_csv, summarize_backhaul
+from backend.analyzers.attach_analyzer import parse_attach_csv, summarize_attach
+from backend.services.pdf_generator import generate_incident_report_pdf
+from backend.services.correlation_engine import (
+    describe_kpi_alarm_correlation,
+    describe_kpi_backhaul_correlation,
+    describe_attach_failures_correlation,
+)
 
 app = FastAPI(title="LTE Band 41 RCA API", version="1.0.0")
 
@@ -84,6 +70,12 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 # File retention settings (in hours)
 FILE_RETENTION_HOURS = 24  # Files older than 24 hours will be deleted
 
+# In-memory context for latest non-KPI uploads (single-tenant assumption)
+LATEST_ALARM_SUMMARY: Optional[Dict[str, Any]] = None
+LATEST_BACKHAUL_SUMMARY: Optional[Dict[str, Any]] = None
+LATEST_ATTACH_SUMMARY: Optional[Dict[str, Any]] = None
+LATEST_RCA_RESULT: Optional[Dict[str, Any]] = None
+
 
 class RCAResponse(BaseModel):
     root_cause: str
@@ -98,6 +90,32 @@ class RCAResponse(BaseModel):
     drift: Optional[Dict[str, Any]] = None
 
 
+class AlarmSummaryResponse(BaseModel):
+    total_count: int
+    by_severity: Dict[str, int]
+    by_mo: Dict[str, int]
+    timeline: List[Dict[str, Any]]
+    sample: List[Dict[str, Any]]
+
+
+class BackhaulSummaryResponse(BaseModel):
+    total_samples: int
+    impairment_score: float
+    modulation_trend: List[Dict[str, Any]]
+    rssi_trend: List[Dict[str, Any]]
+    latency_jitter_trend: List[Dict[str, Any]]
+    error_summary: Dict[str, float]
+
+
+class AttachSummaryResponse(BaseModel):
+    overall_attach_success_rate: Optional[float]
+    per_imsi: Dict[str, Dict[str, Any]]
+    per_apn: Dict[str, Dict[str, Any]]
+    per_tac: Dict[str, Dict[str, Any]]
+    failure_categories: Dict[str, int]
+    dominant_failure_category: Optional[str]
+
+
 class AskAIRequest(BaseModel):
     question: str
     site: Optional[str] = None
@@ -107,6 +125,8 @@ class AskAIRequest(BaseModel):
 class AskAIResponse(BaseModel):
     answer: str
     confidence: float
+
+
 
 
 @app.get("/health")
@@ -251,6 +271,88 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=error_msg)
 
 
+@app.post("/upload-alarms", response_model=AlarmSummaryResponse)
+async def upload_alarms(file: UploadFile = File(...)):
+    """
+    Upload and parse FM/alarm logs (XML, CSV, or text).
+
+    Returns a summarized view suitable for the Alarms dashboard and RCA engine.
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+
+        # Read entire file into memory (FM files are typically modest in size)
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        records = parse_alarm_file(content, file.filename)
+        summary = summarize_alarms(records)
+
+        # Store for subsequent RCA runs (single-user/session-oriented usage)
+        global LATEST_ALARM_SUMMARY
+        LATEST_ALARM_SUMMARY = summary
+
+        return AlarmSummaryResponse(**summary)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Alarm upload failed: {str(e)}")
+
+
+@app.post("/upload-backhaul", response_model=BackhaulSummaryResponse)
+async def upload_backhaul(file: UploadFile = File(...)):
+    """
+    Upload and parse backhaul CSV logs (microwave/fiber).
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        samples = parse_backhaul_csv(content)
+        summary = summarize_backhaul(samples)
+
+        global LATEST_BACKHAUL_SUMMARY
+        LATEST_BACKHAUL_SUMMARY = summary
+
+        return BackhaulSummaryResponse(**summary)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backhaul upload failed: {str(e)}")
+
+
+@app.post("/upload-attach-logs", response_model=AttachSummaryResponse)
+async def upload_attach_logs(file: UploadFile = File(...)):
+    """
+    Upload and parse attach/ERAB logs (CSV).
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        records = parse_attach_csv(content)
+        summary = summarize_attach(records)
+
+        global LATEST_ATTACH_SUMMARY
+        LATEST_ATTACH_SUMMARY = summary
+
+        return AttachSummaryResponse(**summary)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Attach log upload failed: {str(e)}")
+
+
 @app.post("/analyze", response_model=RCAResponse)
 async def analyze_pm_file(file: UploadFile = File(...)):
     """Parse PM XML file and run RCA analysis with AI enhancements"""
@@ -259,6 +361,9 @@ async def analyze_pm_file(file: UploadFile = File(...)):
         file_ext = file.filename.lower()
         is_zip = file_ext.endswith('.zip')
         is_gz = file_ext.endswith('.gz') or file_ext.endswith('.xml.gz')
+        
+        # Reset file pointer to beginning (important for file streams)
+        await file.seek(0)
         
         # Create temporary file with appropriate suffix
         suffix = ".zip" if is_zip else ".xml.gz"
@@ -272,16 +377,36 @@ async def analyze_pm_file(file: UploadFile = File(...)):
             
             if is_zip:
                 # Handle ZIP file
-                with zipfile.ZipFile(tmp_path, 'r') as zip_file:
-                    # Look for XML files in the zip
-                    xml_files = [f for f in zip_file.namelist() if f.endswith('.xml')]
-                    if not xml_files:
-                        raise HTTPException(
-                            status_code=400, 
-                            detail="ZIP file does not contain any XML files"
-                        )
-                    # Use the first XML file found
-                    xml_content = zip_file.read(xml_files[0])
+                try:
+                    with zipfile.ZipFile(tmp_path, 'r') as zip_file:
+                        # Look for XML files in the zip
+                        xml_files = [f for f in zip_file.namelist() if f.endswith('.xml')]
+                        if not xml_files:
+                            # List all files in zip for debugging
+                            all_files = zip_file.namelist()
+                            raise HTTPException(
+                                status_code=400, 
+                                detail=f"ZIP file does not contain any XML files. Found files: {', '.join(all_files[:10])}"
+                            )
+                        # Use the first XML file found
+                        print(f"[DEBUG] Extracting XML file '{xml_files[0]}' from ZIP archive")
+                        xml_content = zip_file.read(xml_files[0])
+                        if not xml_content:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"XML file '{xml_files[0]}' in ZIP is empty"
+                            )
+                        print(f"[DEBUG] Extracted {len(xml_content)} bytes from ZIP")
+                except zipfile.BadZipFile as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid ZIP file. The file may be corrupted or not a valid ZIP archive: {str(e)}"
+                    )
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Error processing ZIP file: {str(e)}"
+                    )
             elif is_gz:
                 # Handle GZIP file
                 try:
@@ -304,7 +429,13 @@ async def analyze_pm_file(file: UploadFile = File(...)):
             # Parse XML
             try:
                 kpi_data = parse_ericsson_pm_xml(xml_content)
+                print(f"[DEBUG] Parsed {len(kpi_data)} KPI records from XML")
+                if kpi_data:
+                    print(f"[DEBUG] Sample KPI: {kpi_data[0]}")
             except Exception as parse_error:
+                import traceback
+                error_trace = traceback.format_exc()
+                print(f"[DEBUG] XML parsing error: {error_trace}")
                 # Provide more helpful error message
                 error_msg = f"XML parsing failed: {str(parse_error)}. "
                 error_msg += "The XML structure may not match expected Ericsson ENM PM format. "
@@ -312,14 +443,36 @@ async def analyze_pm_file(file: UploadFile = File(...)):
                 raise HTTPException(status_code=400, detail=error_msg)
             
             if not kpi_data:
+                # Log XML structure for debugging
+                try:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(xml_content)
+                    root_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
+                    print(f"[DEBUG] XML root tag: {root_tag}")
+                    print(f"[DEBUG] XML has {len(list(root.iter()))} total elements")
+                    # Log first few element tags
+                    tags = [elem.tag.split('}')[-1] for elem in list(root.iter())[:10]]
+                    print(f"[DEBUG] Sample tags: {tags}")
+                except:
+                    pass
                 raise HTTPException(
                     status_code=400, 
                     detail="No KPI data found in XML file. The XML structure may not match the expected format. "
-                           "Please check that the file contains PM measurement data in Ericsson ENM format."
+                           "Please check that the file contains PM measurement data in Ericsson ENM format. "
+                           "Check backend console for debug details."
                 )
             
-            # Run deterministic RCA analysis
-            rca_result = analyze_rca(kpi_data)
+            # Run deterministic RCA analysis with latest multi-module context
+            rca_result = analyze_rca(
+                kpi_data,
+                alarm_summary=LATEST_ALARM_SUMMARY,
+                backhaul_summary=LATEST_BACKHAUL_SUMMARY,
+                attach_summary=LATEST_ATTACH_SUMMARY,
+            )
+
+            # Cache latest RCA for downstream features (e.g., PDF reports)
+            global LATEST_RCA_RESULT
+            LATEST_RCA_RESULT = rca_result
             
             # AI Feature B: Anomaly Detection
             anomaly_result = {}
@@ -381,11 +534,24 @@ async def analyze_pm_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid gzip file. The file may be corrupted or not a valid gzip archive.")
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid ZIP file. The file may be corrupted or not a valid ZIP archive.")
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"Analysis error: {error_trace}")  # Log full traceback for debugging
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        # Also write to a log file so we can inspect errors even when running under a process manager
+        try:
+            log_path = Path(__file__).parent / "analysis_error.log"
+            with log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(f"\n=== {datetime.now().isoformat()} ===\n")
+                log_file.write(error_trace + "\n")
+        except Exception:
+            # Logging failures should not mask the original error
+            pass
+        # Return the actual error message so frontend can show it
+        error_msg = str(e) if str(e) else "Unknown error during analysis"
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {error_msg}")
 
 
 class AskAIRequestWithContext(BaseModel):
@@ -394,6 +560,36 @@ class AskAIRequestWithContext(BaseModel):
     rca_result: Optional[Dict[str, Any]] = None
     site: Optional[str] = None
     time_range: Optional[str] = None
+
+
+@app.post("/incident-report")
+async def incident_report(payload: Dict[str, Any]):
+    """
+    Generate an incident report PDF for the current RCA context.
+
+    The payload may include explicit summaries; if omitted, the latest cached
+    RCA and module summaries are used where available.
+    """
+    try:
+        combined = {
+            "siteId": payload.get("siteId"),
+            "timestampRange": payload.get("timestampRange"),
+            "rcaResult": payload.get("rcaResult") or LATEST_RCA_RESULT,
+            "kpiSummary": payload.get("kpiSummary"),
+            "alarmSummary": payload.get("alarmSummary") or LATEST_ALARM_SUMMARY,
+            "backhaulSummary": payload.get("backhaulSummary") or LATEST_BACKHAUL_SUMMARY,
+            "attachSummary": payload.get("attachSummary") or LATEST_ATTACH_SUMMARY,
+        }
+        pdf_bytes = generate_incident_report_pdf(combined)
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="ran_copilot_incident_report.pdf"'
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate incident report: {str(e)}")
 
 
 @app.post("/ask-ai", response_model=AskAIResponse)
@@ -428,6 +624,8 @@ async def ask_ai_question(request: AskAIRequestWithContext):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI query failed: {str(e)}")
+
+
 
 
 if __name__ == "__main__":

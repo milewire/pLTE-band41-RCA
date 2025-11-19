@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 from collections import defaultdict
 import statistics
 
+from .rca_engine import analyze_rca as _multi_signal_analyze_rca  # type: ignore
+
 
 # RCA Thresholds (LTE B41 specific)
 THRESHOLDS = {
@@ -22,7 +24,12 @@ THRESHOLDS = {
 }
 
 
-def analyze_rca(kpi_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_rca(
+    kpi_data: List[Dict[str, Any]],
+    alarm_summary: Optional[Dict[str, Any]] = None,
+    backhaul_summary: Optional[Dict[str, Any]] = None,
+    attach_summary: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Perform Root Cause Analysis on KPI data.
     
@@ -36,6 +43,25 @@ def analyze_rca(kpi_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         - evidence: KPI values and statistics
         - anomalies: List of detected anomalies
         - recommendations: List of recommended actions
+
+    Note:
+        This function now delegates to the multi-signal RCA engine, which
+        enriches KPI analysis with alarms/backhaul/attach context when
+        provided. When called with KPI data only, behavior is backward
+        compatible with the original KPI-only implementation.
+    """
+    # Delegate to multi-signal engine for actual computation
+    if not kpi_data:
+        return _multi_signal_analyze_rca(kpi_data, alarm_summary, backhaul_summary, attach_summary)
+
+    # Preserve legacy behavior by calling into the new engine
+    return _multi_signal_analyze_rca(kpi_data, alarm_summary, backhaul_summary, attach_summary)
+
+
+def _legacy_analyze_rca(kpi_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Original KPI-only RCA implementation kept for reference and potential
+    unit testing. Not used by the main application anymore.
     """
     if not kpi_data:
         return {
@@ -43,9 +69,9 @@ def analyze_rca(kpi_data: List[Dict[str, Any]]) -> Dict[str, Any]:
             "severity": "low",
             "evidence": {},
             "anomalies": [],
-            "recommendations": ["No KPI data available for analysis"]
+            "recommendations": ["No KPI data available for analysis"],
         }
-    
+
     # Group KPIs by name and site
     kpi_by_name = defaultdict(list)
     kpi_by_site = defaultdict(lambda: defaultdict(list))

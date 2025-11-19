@@ -7,8 +7,8 @@ import { Navigation } from '@/components/navigation'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'LTE Band 41 RCA',
-  description: 'LTE Band 41 Network Anomaly Analysis',
+  title: 'RAN-Copilot',
+  description: 'LTE Band 41/8 RAN Copilot for KPI, alarm, backhaul, and attach analysis',
   viewport: {
     width: 'device-width',
     initialScale: 1,

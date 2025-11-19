@@ -52,9 +52,14 @@ def parse_ericsson_pm_xml(xml_content: bytes) -> List[Dict[str, Any]]:
     # Initialize default timestamp
     default_timestamp = datetime.now().isoformat()
     
-    # Strategy 1: Parse namespace-based mdc structure (Ericsson ENM format with namespaces)
-    # Check for es:mdc or mdc root element
+    # Strategy 1: Parse 3GPP 32.432 MeasurementData format (with md: namespace)
     root_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag  # Remove namespace prefix
+    if root_tag == "MeasurementData":
+        kpi_data = parse_3gpp_measurement_data(root, default_timestamp)
+        if kpi_data:
+            return kpi_data
+    
+    # Strategy 1b: Parse namespace-based mdc structure (Ericsson ENM format with namespaces)
     if root_tag == "mdc":
         kpi_data = parse_mdc_structure(root, default_timestamp)
         if kpi_data:
@@ -142,6 +147,10 @@ def parse_ericsson_pm_xml(xml_content: bytes) -> List[Dict[str, Any]]:
     if not kpi_data:
         kpi_data = parse_flexible_structure(root, default_timestamp)
     
+    # Strategy 6: Last resort - extract ANY numeric values from XML as potential KPIs
+    if not kpi_data:
+        kpi_data = parse_aggressive_fallback(root, default_timestamp)
+    
     return kpi_data
 
 
@@ -189,7 +198,7 @@ def parse_flexible_structure(root: ET.Element, default_timestamp: str) -> List[D
     """Flexible parsing that looks for any numeric values in the XML"""
     kpi_data = []
     
-    # Look for measType elements anywhere in the tree
+    # Strategy 5a: Look for measType elements anywhere in the tree
     for meas_type in root.findall(".//measType"):
         # Get counter ID
         counter_id = meas_type.attrib.get("p") or meas_type.text
@@ -235,46 +244,294 @@ def parse_flexible_structure(root: ET.Element, default_timestamp: str) -> List[D
     return kpi_data
 
 
+def parse_aggressive_fallback(root: ET.Element, default_timestamp: str) -> List[Dict[str, Any]]:
+    """
+    Last resort parser: extract any numeric values from the XML.
+    This is very permissive and will try to find measurements even if
+    the XML structure doesn't match standard Ericsson formats.
+    """
+    kpi_data = []
+    
+    # Try to extract site ID from anywhere in the document
+    site_id = "UNKNOWN"
+    for elem in root.iter():
+        # Look for site identifiers in various formats
+        if "dn" in elem.attrib:
+            dn = elem.attrib["dn"]
+            site_match = re.search(r'eNodeBId=(\d+)|cellName=([^,]+)|BTS(\d+)|41001|41002', dn, re.IGNORECASE)
+            if site_match:
+                site_id = site_match.group(1) or site_match.group(2) or site_match.group(3) or "UNKNOWN"
+                break
+        if elem.text and ("BTS" in elem.text or "41001" in elem.text or "41002" in elem.text):
+            site_match = re.search(r'BTS(\d+)|41001|41002', elem.text)
+            if site_match:
+                site_id = site_match.group(1) or "41001"
+                break
+    
+    # Look for any elements that might contain numeric measurement values
+    # Common patterns: <r>, <value>, <measurement>, <counter>, text content that's numeric
+    for elem in root.iter():
+        tag_lower = elem.tag.lower() if elem.tag else ""
+        
+        # Check if this element contains a numeric value
+        if elem.text and elem.text.strip():
+            try:
+                value = float(elem.text.strip())
+                # Only accept reasonable numeric ranges (not timestamps, IDs, etc.)
+                if -1000 <= value <= 1000000:
+                    # Try to infer KPI name from parent/attribute context
+                    kpi_name = "Unknown_KPI"
+                    
+                    # Check parent for hints (ElementTree doesn't track parents, so we search)
+                    # Look for parent context by checking if this element appears in any parent's children
+                    parent_tag = ""
+                    for potential_parent in root.iter():
+                        if elem in list(potential_parent):
+                            parent_tag = potential_parent.tag.lower() if potential_parent.tag else ""
+                            break
+                    if parent_tag:
+                        if "rrc" in parent_tag or "rrc" in str(elem.attrib):
+                            kpi_name = "RRC_Setup_Success_Rate"
+                        elif "erab" in parent_tag or "erab" in str(elem.attrib):
+                            kpi_name = "ERAB_Setup_Success_Rate"
+                        elif "sinr" in parent_tag or "sinr" in str(elem.attrib):
+                            kpi_name = "SINR_Avg"
+                        elif "bler" in parent_tag or "bler" in str(elem.attrib):
+                            kpi_name = "BLER_P95"
+                        elif "prb" in parent_tag or "prb" in str(elem.attrib):
+                            kpi_name = "PRB_Utilization_Avg"
+                    
+                    # Check for counter ID in attributes
+                    if "p" in elem.attrib:
+                        counter_id = elem.attrib["p"]
+                        kpi_name = COUNTER_MAPPINGS.get(str(counter_id), kpi_name)
+                    
+                    kpi_data.append({
+                        "timestamp": default_timestamp,
+                        "site": site_id,
+                        "kpi": kpi_name,
+                        "value": value
+                    })
+            except (ValueError, AttributeError):
+                pass
+        
+        # Also check for <r> elements (common in Ericsson XML)
+        if tag_lower == "r" or tag_lower.endswith("}r"):
+            if elem.text and elem.text.strip():
+                try:
+                    value = float(elem.text.strip())
+                    if -1000 <= value <= 1000000:
+                        # Try to find associated measType or counter info
+                        kpi_name = "Unknown_KPI"
+                        # Search for measType elements that might be related
+                        for potential_meas_type in root.findall(".//measType"):
+                            # Check if this measType is in the same parent structure as our <r> element
+                            # by checking if they share a common ancestor with measInfo
+                            meas_info = None
+                            for parent in root.iter():
+                                if potential_meas_type in list(parent.iter()):
+                                    if parent.tag == "measInfo" or parent.find(".//measInfo") is not None:
+                                        meas_info = parent
+                                        break
+                            if meas_info is not None:
+                                # Check if our <r> element is also in this measInfo
+                                if elem in list(meas_info.iter()):
+                                    counter_id = potential_meas_type.attrib.get("p") or potential_meas_type.text
+                                    if counter_id:
+                                        kpi_name = COUNTER_MAPPINGS.get(str(counter_id), f"Counter_{counter_id}")
+                                        break
+                        
+                        kpi_data.append({
+                            "timestamp": default_timestamp,
+                            "site": site_id,
+                            "kpi": kpi_name,
+                            "value": value
+                        })
+                except (ValueError, AttributeError):
+                    pass
+    
+    return kpi_data
+
+
 def extract_site_from_element(elem: ET.Element) -> str:
     """Extract site identifier from an element or its parents"""
-    # Walk up the tree to find site information
+    # Walk up the tree to find site information. We only use information that is
+    # locally available on this element or its direct children to avoid relying
+    # on a global `root` reference (which caused NameError in some flows).
     current = elem
     for _ in range(10):  # Limit depth to avoid infinite loops
         if current is None:
             break
-        
+
         # Check for DN attribute
         if "dn" in current.attrib:
             dn = current.attrib["dn"]
             site_match = re.search(r'eNodeBId=(\d+)|cellName=([^,]+)|ManagedElement=([^,]+)', dn)
             if site_match:
                 return site_match.group(1) or site_match.group(2) or site_match.group(3) or "UNKNOWN"
-        
+
         # Check for localDn
         local_dn_elem = current.find(".//localDn")
         if local_dn_elem is not None and local_dn_elem.text:
             site_match = re.search(r'eNodeBId=(\d+)|cellName=([^,]+)|ManagedElement=([^,]+)', local_dn_elem.text)
             if site_match:
                 return site_match.group(1) or site_match.group(2) or site_match.group(3) or "UNKNOWN"
-        
+
         # Check for eNodeBId or cellName in attributes
         if "eNodeBId" in current.attrib:
             return current.attrib["eNodeBId"]
         if "cellName" in current.attrib:
             return current.attrib["cellName"]
-        
-        # Move to parent by searching for elements that contain this one
-        # This is a simplified approach - in practice, we'd need to track parent during iteration
-        parent_found = False
-        for potential_parent in root.iter():
-            if current in list(potential_parent.iter()):
-                current = potential_parent
-                parent_found = True
-                break
-        if not parent_found:
-            break
-    
+
+        # Without explicit parent tracking, we can't reliably walk higher than
+        # this element, so stop here to avoid NameError or incorrect matches.
+        break
+
     return "UNKNOWN"
+
+
+def parse_3gpp_measurement_data(root: ET.Element, default_timestamp: str) -> List[Dict[str, Any]]:
+    """
+    Parse 3GPP 32.432 MeasurementData format (md: namespace).
+    
+    Format:
+    <md:MeasurementData>
+      <md:MeasInfo>
+        <md:measTypes>RrcConnEstabAtt RrcConnEstabSucc ...</md:measTypes>
+        <md:measValues measObjLdn="...">
+          <md:measResults>140 110 110 80 ...</md:measResults>
+        </md:measValues>
+      </md:MeasInfo>
+    </md:MeasurementData>
+    """
+    kpi_data = []
+    
+    # Get namespace URI if present
+    ns_uri = None
+    if '}' in root.tag:
+        ns_uri = root.tag.split('}')[0][1:]
+    
+    # Find all MeasInfo elements
+    meas_info_elements = []
+    if ns_uri:
+        meas_info_elements = root.findall(f"{{{ns_uri}}}MeasInfo")
+    if not meas_info_elements:
+        meas_info_elements = root.findall(".//MeasInfo")
+    
+    for meas_info in meas_info_elements:
+        # Extract timestamp from granPeriod
+        timestamp = default_timestamp
+        gran_period = None
+        if ns_uri:
+            gran_period = meas_info.find(f"{{{ns_uri}}}granPeriod")
+        if gran_period is None:
+            gran_period = meas_info.find(".//granPeriod")
+        if gran_period is not None:
+            end_time = gran_period.attrib.get("endTime")
+            if end_time:
+                try:
+                    timestamp = parse_timestamp(end_time)
+                except:
+                    pass
+        
+        # Extract measTypes (space-separated list)
+        meas_types_elem = None
+        if ns_uri:
+            meas_types_elem = meas_info.find(f"{{{ns_uri}}}measTypes")
+        if meas_types_elem is None:
+            meas_types_elem = meas_info.find(".//measTypes")
+        
+        if meas_types_elem is None or not meas_types_elem.text:
+            continue
+        
+        # Parse space-separated KPI names
+        kpi_names = [name.strip() for name in meas_types_elem.text.split() if name.strip()]
+        
+        # Map 3GPP counter names to our standard names
+        kpi_name_mapping = {
+            "RrcConnEstabAtt": "RRC_Connections",
+            "RrcConnEstabSucc": "RRC_Setup_Success_Rate",
+            "ErabEstabAtt": "ERAB_Connections",
+            "ErabEstabSucc": "ERAB_Setup_Success_Rate",
+            "PagingAtt": "Paging_Attempts",
+            "PagingDiscs": "Paging_Success_Rate",
+            "UlBler": "BLER_P95",
+            "DlBler": "BLER_P95",
+            "PrbUsedDl": "PRB_Utilization_Avg",
+            "PrbUsedUl": "PRB_Utilization_Avg",
+            "RsrpAvg": "RSRP_Avg",
+            "SinrAvg": "SINR_Avg",
+        }
+        
+        mapped_kpi_names = []
+        for name in kpi_names:
+            mapped_name = kpi_name_mapping.get(name, name.replace(" ", "_"))
+            mapped_kpi_names.append(mapped_name)
+        
+        # Find all measValues
+        meas_values_elements = []
+        if ns_uri:
+            meas_values_elements = meas_info.findall(f"{{{ns_uri}}}measValues")
+        if not meas_values_elements:
+            meas_values_elements = meas_info.findall(".//measValues")
+        
+        for meas_values in meas_values_elements:
+            # Extract site ID from measObjLdn
+            site_id = "UNKNOWN"
+            meas_obj_ldn = meas_values.attrib.get("measObjLdn", "")
+            if meas_obj_ldn:
+                # Extract from patterns like "ManagedElement=ERBS_41001" or "EUtranCellTDD=41001A"
+                site_match = re.search(r'ERBS_(\d+)|EUtranCellTDD=([^,]+)|ManagedElement=([^,]+)', meas_obj_ldn)
+                if site_match:
+                    site_id = site_match.group(1) or site_match.group(2) or site_match.group(3) or "UNKNOWN"
+                else:
+                    # Fallback: use the whole measObjLdn
+                    site_id = meas_obj_ldn.split(',')[0].split('=')[-1] if '=' in meas_obj_ldn else meas_obj_ldn
+            
+            # Extract timestamp from repPeriodEndTime if available
+            rep_period_end = None
+            if ns_uri:
+                rep_period_end = meas_values.find(f"{{{ns_uri}}}repPeriodEndTime")
+            if rep_period_end is None:
+                rep_period_end = meas_values.find(".//repPeriodEndTime")
+            if rep_period_end is not None and rep_period_end.text:
+                try:
+                    timestamp = parse_timestamp(rep_period_end.text)
+                except:
+                    pass
+            
+            # Extract measResults (space-separated numeric values)
+            meas_results_elem = None
+            if ns_uri:
+                meas_results_elem = meas_values.find(f"{{{ns_uri}}}measResults")
+            if meas_results_elem is None:
+                meas_results_elem = meas_values.find(".//measResults")
+            
+            if meas_results_elem is None or not meas_results_elem.text:
+                continue
+            
+            # Parse space-separated numeric values
+            value_strings = meas_results_elem.text.split()
+            
+            # Map values to KPI names by position
+            for idx, value_str in enumerate(value_strings):
+                if idx >= len(mapped_kpi_names):
+                    break
+                
+                try:
+                    value = float(value_str.strip())
+                    kpi_name = mapped_kpi_names[idx]
+                    
+                    kpi_data.append({
+                        "timestamp": timestamp,
+                        "site": site_id,
+                        "kpi": kpi_name,
+                        "value": value
+                    })
+                except ValueError:
+                    continue
+    
+    return kpi_data
 
 
 def parse_meas_collec_file(root: ET.Element, default_timestamp: str) -> List[Dict[str, Any]]:

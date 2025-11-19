@@ -147,7 +147,6 @@ Frontend runs on `http://localhost:3000`
 
 - Backend health check: `http://localhost:8000/health`
 - Frontend: `http://localhost:3000`
-- Test OpenAI connection (if configured): `python test_openai_connection.py`
 
 ## Usage
 
@@ -179,6 +178,7 @@ Frontend runs on `http://localhost:3000`
   - Anomaly detection results
   - Evidence and recommendations
   - AI-powered summary (when GPT-4o is enabled)
+  - PDF export with professional formatting and pass/fail KPI indicators
   - Mobile-optimized card layouts
   
 - **`/ask-ai`** - Natural language query interface powered by GPT-4o (when configured)
@@ -186,6 +186,7 @@ Frontend runs on `http://localhost:3000`
   - Professional report-quality responses
   - Confidence scoring for all answers
   - Full-width mobile interface with responsive textarea
+  - Can answer troubleshooting questions, explain root causes, and provide recommendations
   
 - **`/help`** - KPI parameters reference, ideal values, thresholds, and root cause classifications
   - Complete list of monitored KPIs
@@ -224,9 +225,17 @@ The dashboard displays statistical summaries for each KPI:
   - Returns file information and storage path
   
 - `POST /analyze` - Parse and analyze PM data with AI enhancements
-  - Accepts uploaded file
+  - Accepts uploaded file (.xml.gz, .gz, .zip, or .xml)
+  - Supports ZIP file extraction and analysis
   - Returns complete RCA analysis with AI features
   - Includes KPI data, anomalies, recommendations, and AI summary
+
+- `POST /incident-report` - Generate PDF incident report
+  - Accepts RCA results and summaries
+  - Returns professional PDF document
+  - Includes formatted KPI table with pass/fail indicators
+  - Clean formatting without markdown symbols
+  - Suitable for email distribution
 
 ### AI Endpoints
 
@@ -428,10 +437,12 @@ The XML should contain:
 
 **File Processing:**
 - Files are validated for format and size before processing
-- ZIP files are automatically extracted to find XML content
+- ZIP files are automatically extracted to find XML content (first XML file found is used)
 - GZIP files are automatically decompressed
 - Plain XML files are processed directly
+- File stream is properly reset before processing (fixes ZIP file analysis issues)
 - Comprehensive error messages for parsing failures
+- Detailed debug logging for troubleshooting
 
 ## Development
 
@@ -449,6 +460,30 @@ cd frontend
 npm run dev
 ```
 
+## PDF Export Feature
+
+The RCA page includes a "Generate Incident Report (PDF)" button that creates a professional PDF document suitable for email distribution.
+
+**PDF Features:**
+- **Formatted KPI Summary Table**: Professional table with Mean, Min, Max, Count, and Status columns
+- **Pass/Fail Indicators**: Color-coded status column showing which KPIs meet their thresholds
+  - Green "PASS" for KPIs meeting thresholds
+  - Red "FAIL" for KPIs exceeding thresholds
+  - Grey "-" for KPIs without defined thresholds
+- **AI Analysis Summary**: Clean formatting without markdown symbols
+  - Bold labels for items ending with colons
+  - Action items separated with hyphens
+  - Professional paragraph structure
+- **Root Cause Analysis**: Primary root cause, severity, and recommendations
+- **Complete Documentation**: Includes all analysis results, summaries, and recommendations
+
+**Usage:**
+1. Upload and analyze a PM file
+2. Navigate to the RCA page
+3. Click "Generate Incident Report (PDF)"
+4. PDF downloads automatically
+5. Attach to email or share with team
+
 ## Ask AI Capabilities
 
 When GPT-4o is enabled, Ask AI can answer questions about:
@@ -460,6 +495,7 @@ When GPT-4o is enabled, Ask AI can answer questions about:
 - **Site Comparisons**: "Compare performance across different sites"
 - **Recommendations**: "What should I do to fix this issue?"
 - **Technical Explanations**: "Explain the root cause in simple terms"
+- **Troubleshooting**: "How do I fix high BLER?" or "What steps should I take for RRC failures?"
 
 All responses are formatted as professional reports with:
 - Specific calculations and formulas (plain text, no LaTeX)
@@ -482,7 +518,6 @@ All responses are formatted as professional reports with:
 2. Check that `ALLOW_CLOUD=1` and `OPENAI_API_KEY` are set
 3. Restart backend server after configuration changes
 4. Check backend console for debug messages: `[Ask AI] ALLOW_CLOUD=1, has_api_key=True, use_local=False`
-5. Run `python test_openai_connection.py` to test OpenAI connectivity
 
 ### LaTeX in Responses
 
@@ -493,9 +528,15 @@ If you see LaTeX notation (e.g., `\[ \frac{128}{140} \]`), the cleanup function 
 
 ### File Upload Issues
 
+**ZIP File Upload:**
+- ZIP files are now properly supported and analyzed
+- The first XML file found in the ZIP archive is extracted and processed
+- If ZIP file contains no XML files, you'll receive a clear error message listing the files found
+- File stream is properly reset before processing to ensure reliable extraction
+
 **Local Development:**
 - Ensure file format is supported: `.xml.gz`, `.gz`, `.zip`, or `.xml`
-- Check backend console for parsing errors
+- Check backend console for parsing errors and debug messages
 - Verify XML structure matches Ericsson ENM PM format
 - Check `backend/uploads/` directory for uploaded files
 
@@ -582,4 +623,4 @@ The application works seamlessly on:
 
 ## License
 
-This project is available for portfolio and demonstration purposes. See LICENSE file for details.
+This is proprietary software. All rights reserved. Unauthorized use, copying, modification, or distribution is strictly prohibited. See LICENSE file for details.

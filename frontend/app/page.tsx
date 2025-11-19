@@ -5,9 +5,9 @@ export default function Home() {
   return (
     <div className="space-y-8 px-4 sm:px-6">
       <div className="text-center space-y-4">
-        <h1 className="text-3xl sm:text-4xl font-bold">LTE Band 41 RCA</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold">RAN-Copilot</h1>
         <p className="text-lg sm:text-xl text-muted-foreground">
-          Network Anomaly Analysis & Root Cause Analysis Tool
+          LTE Band 41/8 RAN Engineer Copilot for KPIs, alarms, backhaul, and attach analysis
         </p>
       </div>
 

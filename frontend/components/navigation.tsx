@@ -12,9 +12,9 @@ export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const navItems = [
-    { href: '/upload', label: 'Upload' },
     { href: '/dashboard', label: 'Dashboard' },
-    { href: '/rca', label: 'RCA Analysis' },
+    { href: '/upload', label: 'Upload PM Data' },
+    { href: '/rca', label: 'RCA' },
     { href: '/ask-ai', label: 'Ask AI' },
     { href: '/help', label: 'Help' },
   ]
@@ -24,7 +24,7 @@ export function Navigation() {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center space-x-4 sm:space-x-8">
           <Link href="/" className="text-lg sm:text-xl font-bold">
-            LTE Band 41 RCA
+            RAN-Copilot
           </Link>
           {/* Desktop Navigation */}
           <div className="hidden md:flex space-x-4">
